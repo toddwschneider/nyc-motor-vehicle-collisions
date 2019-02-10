@@ -1,0 +1,865 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8">
+
+    <title>NYC Motor Vehicle Collisions</title>
+
+    <script src="https://unpkg.com/deck.gl@latest/deckgl.min.js"></script>
+    <script src="https://api.tiles.mapbox.com/mapbox-gl-js/v0.52.0/mapbox-gl.js"></script>
+    <script src="https://d3js.org/d3-dsv.v1.min.js"></script>
+    <script src="https://d3js.org/d3-fetch.v1.min.js"></script>
+
+    <link rel="stylesheet" type="text/css" href="https://api.tiles.mapbox.com/mapbox-gl-js/v0.52.0/mapbox-gl.css">
+    <link href="https://fonts.googleapis.com/css?family=IBM+Plex+Mono" rel="stylesheet">
+
+    <style type="text/css">
+      body {
+        font-family: 'IBM Plex Mono', monospace;
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+      }
+      #control-panel { width: 210px; }
+      .mobile #control-panel { width: 270px; }
+      #control-panel, #legend, #tooltip, #show-control-panel, .hide-controls {
+        background: #17171d;
+        opacity: 0.9;
+        color: #ddd;
+        border: 1px solid #555;
+        border-radius: 8px;
+      }
+      #control-panel a, #legend a, #tooltip a, #show-control-panel a, .hide-controls {
+        text-decoration: none;
+        color: #5ba7c2;
+      }
+      #control-panel hr {
+        border: 0.5px solid #555;
+        margin: 12px -8px;
+      }
+      #radius {
+        margin-top: 4px;
+        width: 90%;
+      }
+      #radius::-moz-range-track { background: rgb(144, 144, 144); }
+      #control-panel select {
+        width: 100%;
+        padding: 5px;
+        font-family: 'IBM Plex Mono';
+        font-size: 12px;
+        border: 0px;
+        background: #292929;
+        color: #ddd;
+        height: 34px;
+        -webkit-appearance: none;
+        -moz-appearance: none;
+        appearance: none;
+        background-image: url("data:image/svg+xml;utf8,<svg fill='#dddddd' height='24' viewBox='0 0 24 24' width='24' xmlns='http://www.w3.org/2000/svg'><path d='M7 10l5 5 5-5z'/><path d='M0 0h24v24H0z' fill='none'/></svg>");
+        background-repeat: no-repeat;
+        background-position-x: 100%;
+        background-position-y: 50%;
+      }
+      #control-panel select[disabled] {
+        cursor: not-allowed;
+        background-image: none;
+        background-color: #666;
+        color: #ccc;
+      }
+      #control-panel select:hover { cursor: pointer; }
+      #legend {
+        position: absolute;
+        bottom: 26px;
+        right: 8px;
+        z-index: 9;
+        padding: 4px 6px;
+        font-size: 12px;
+      }
+      .legend-bar {
+        width: 12px;
+        height: 11px;
+      }
+      .legend-label { margin-bottom: 3px; }
+      .legend-bar { display: inline-block; }
+      .legend-max { float: right; }
+      #control-panel, #show-control-panel {
+        position: fixed;
+        max-height: 90vh;
+        top: 8px;
+        left: 8px;
+        padding: 8px;
+        font-size: 12px;
+        z-index: 10;
+      }
+      .control-panel-row { margin-bottom: 12px; }
+      .control-panel-github { margin-bottom: 4px; }
+      .mobile #control-panel { overflow-y: scroll; }
+      .mobile #control-panel,
+      .mobile #show-control-panel,
+      .mobile #control-panel select,
+      .mobile #control-panel select:focus {
+        font-size: 16px;
+      }
+      .mobile #legend { bottom: 40px; }
+      .mobile .injury-checkboxes { line-height: 36px; }
+      .radio-button-label { margin-right: 6px; }
+      .mobile .hide-controls {
+        border: none;
+        padding-bottom: 12px;
+      }
+      body:not(.mobile) .hide-controls {
+        position: absolute;
+        top: -1px;
+        right: -21px;
+        height: 16px;
+        width: 16px;
+        border-radius: 16px;
+        text-align: center;
+      }
+      #control-panel .injury-checkboxes input[disabled]:hover { cursor: not-allowed; }
+      .collisions-total img { height: 12px; }
+      #tooltip:empty { display: none; }
+      #tooltip {
+        font-size: 12px;
+        position: absolute;
+        padding: 6px;
+        margin: 8px;
+        max-width: 320px;
+        z-index: 100;
+        pointer-events: none;
+      }
+      #tooltip table { border-collapse: collapse; }
+      #tooltip th {
+        text-align: left;
+        font-weight: normal;
+        padding: 2px 6px 12px 6px;
+      }
+      #tooltip td { padding: 2px 6px; }
+      #tooltip .numeric { text-align: right; }
+      #tooltip .total td { border-top: 1px solid #aaa; }
+      #tooltip .year-histogram td { padding-top: 12px; }
+      .hidden { display: none; }
+    </style>
+  </head>
+
+  <body>
+    <div id="show-control-panel" class="hidden">
+      <a href="#" onclick="showControlPanel()">
+        <div>
+          Show controls
+        </div>
+      </a>
+    </div>
+
+    <div id="control-panel">
+      <a href="#" onclick="hideControlPanel()">
+        <div class="hide-controls">
+          &#215;
+        </div>
+      </a>
+
+      <div class="control-panel-row color-variable">
+        <select id="colorVariable" onchange="renderLayer()">
+          <option value="collisions">Total collisions</option>
+          <option value="total_injured">Total people injured</option>
+          <option value="total_killed">Total people killed</option>
+          <option value="motorists_injured">Motorists injured</option>
+          <option value="motorists_killed">Motorists killed</option>
+          <option value="cyclists_injured">Cyclists injured</option>
+          <option value="cyclists_killed">Cyclists killed</option>
+          <option value="pedestrians_injured">Pedestrians injured</option>
+          <option value="pedestrians_killed">Pedestrians killed</option>
+        </select>
+      </div>
+
+      <div class="control-panel-row">
+        <select id="borough" onchange="filterData()">
+          <option value="">All boroughs</option>
+          <option value="x">Bronx</option>
+          <option value="k">Brooklyn</option>
+          <option value="m">Manhattan</option>
+          <option value="q">Queens</option>
+          <option value="s">Staten Island</option>
+        </select>
+      </div>
+
+      <div class="control-panel-row">
+        <select id="year" onchange="filterData()">
+          <option value="">2012–2018</option>
+          <option value="2018">2018</option>
+          <option value="2017">2017</option>
+          <option value="2016">2016</option>
+          <option value="2015">2015</option>
+          <option value="2014">2014</option>
+          <option value="2013">2013</option>
+          <option value="2012">2012 (Jul–Dec)</option>
+        </select>
+      </div>
+
+      <div class="control-panel-row">
+        <select id="timeOfDay" onchange="filterData()">
+          <option value="">All times of day</option>
+          <option value="m">8:00 AM–11:00 AM</option>
+          <option value="i">11:00 AM–4:00 PM</option>
+          <option value="a">4:00 PM–7:00 PM</option>
+          <option value="e">7:00 PM–10:00 PM</option>
+          <option value="o">10:00 PM–8:00 AM</option>
+        </select>
+      </div>
+
+      <div class="control-panel-row">
+        <select id="numVehicles" onchange="filterData()">
+          <option value="">1+ vehicles</option>
+          <option value="1">1 vehicle</option>
+          <option value="2">2 vehicles</option>
+          <option value="3">3+ vehicles</option>
+        </select>
+      </div>
+
+      <div class="control-panel-row injury-status">
+        <select id="injuryStatus" onchange="filterData()">
+          <option value="">All injury statuses</option>
+          <option value="both">At least 1 injury or fatality</option>
+          <option value="killed">At least 1 fatality</option>
+          <option value="none">No injuries</option>
+        </select>
+      </div>
+
+      <div class="control-panel-row">
+        <label>Type injured</label>
+
+        <div class="injury-checkboxes disabled" onmouseover="injuryTooltip(this)" onmouseout="emptyTooltip()">
+          <div>
+            <input id="motorists-injured" type="checkbox" disabled onchange="filterData()"></input>
+            <label for="motorists-injured">Motorists</label>
+          </div>
+
+          <div>
+            <input id="cyclists-injured" type="checkbox" disabled onchange="filterData()"></input>
+            <label for="cyclists-injured">Cyclists</label>
+          </div>
+
+          <div>
+            <input id="pedestrians-injured" type="checkbox" disabled onchange="filterData()"></input>
+            <label for="pedestrians-injured">Pedestrians</label>
+          </div>
+        </div>
+      </div>
+
+      <hr/>
+
+      <div class="control-panel-row collisions-total">
+        Fetching data
+        <img src="https://cdn.toddwschneider.com/collisions/ajax-loader.gif" alt="throbber">
+      </div>
+
+      <hr/>
+
+      <div class="control-panel-row">
+        <label>Hexagon radius: <span id="radius-value">300</span> meters</label>
+        <input id="radius" type="range" min="50" max="1000" step="50" value="300" onchange="renderLayer()"></input>
+      </div>
+
+      <div class="control-panel-row radio-buttons">
+        <input id="mode-2d" type="radio" name="mode" value="2d" checked onchange="setMode()">
+        <label for="mode-2d" class="radio-button-label">2D</label>
+
+        <input id="mode-3d" type="radio" name="mode" value="3d" onchange="setMode()">
+        <label for="mode-3d" class="radio-button-label">3D</label>
+      </div>
+
+      <hr/>
+
+      <div class="control-panel-github">
+        <a href="https://github.com/toddwschneider/nyc-motor-vehicle-collisions" target="_blank">
+          GitHub
+        </a>
+      </div>
+    </div>
+
+    <div id="tooltip"></div>
+
+    <div id="legend" class="hidden">
+      <div class="legend-label">Collisions</div>
+      <div class="legend-colors"></div>
+      <div>
+        <span class="legend-min"></span>
+        <span class="legend-max"></span>
+      </div>
+    </div>
+  </body>
+
+  <script type="text/javascript">
+    'use strict';
+
+    if (!('fetch' in window)) {
+      alert('Sorry, your browser is not supported. Recommended browsers are Chrome, Firefox, and Safari.');
+      throw new Error('unsupported browser');
+    }
+
+    let mobile = mobileDevice();
+    let urlParams = new URLSearchParams(window.location.search);
+
+    const COLOR_RANGE = [
+      [0, 0, 4, 223],
+      [20, 11, 53, 239],
+      [58, 9, 99],
+      [96, 19, 110],
+      [133, 33, 107],
+      [169, 46, 94],
+      [203, 65, 73],
+      [230, 93, 47],
+      [247, 131, 17],
+      [252, 173, 18],
+      [245, 219, 75],
+      [252, 255, 164]
+    ];
+
+    buildLegend();
+
+    const LIGHT_SETTINGS = {
+      lightsPosition: [-74.08, 40.8, 8000, -73.5, 41, 8000],
+      ambientRatio: 0.4,
+      diffuseRatio: 0.6,
+      specularRatio: 0.8,
+      lightsStrength: [1, 0, 1, 0],
+      numberOfLights: 2
+    };
+
+    initializeLayerInputs();
+
+    // data is generated by export_data.sql script
+    let baseUrl = 'https://toddwschneiderdotcom.twscontent.com/collisions/20190131';
+    let dataUrl = `${baseUrl}/nyc_motor_vehicle_collisions.csv`;
+
+    if (mobile) {
+      document.body.classList.add('mobile');
+      window.onresize = () => {
+        document.body.style.height = `${window.innerHeight}px`;
+        document.getElementById('control-panel').style.maxHeight = `${window.innerHeight - 36}px`;
+      }
+      window.onresize();
+      document.querySelector('.hide-controls').innerHTML = 'Hide controls';
+      hideControlPanel();
+    }
+
+    let currentMode = document.querySelector('input[name="mode"]:checked').value;
+    let current3dPitch = 54;
+
+    let viewStateDefaults = {
+      longitude: -73.977,
+      latitude: 40.728,
+      zoom: 10.9,
+      bearing: 0,
+      pitch: (currentMode === '3d' ? current3dPitch : 0),
+      minZoom: 8
+    };
+
+    const LNG_LAT_BOUNDS = {
+      longitude: [-75, -73],
+      latitude: [40, 41.5]
+    };
+
+    let currentViewState = Object.assign({}, viewStateDefaults);
+
+    Object.keys(currentViewState).forEach(k => {
+      if (urlParams.has(k)) {
+        currentViewState[k] = Number(urlParams.get(k));
+      }
+    });
+
+    let viewStateChangeTimeout;
+
+    const deckgl = new deck.DeckGL(Object.assign({
+      mapboxApiAccessToken: 'YOUR_TOKEN_HERE', // register at https://www.mapbox.com to get a token
+      mapStyle: 'mapbox://styles/mapbox/dark-v9?optimize=true',
+      controller: {touchRotate: (currentMode === '3d')},
+      debug: false,
+      onWebGLInitialized: gl => {
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+        gl.blendEquation(gl.FUNC_ADD, gl.FUNC_ADD);
+      },
+      onViewStateChange: ({viewState}) => {
+        if (currentMode === '3d') {
+          current3dPitch = viewState.pitch;
+        }
+        currentViewState = Object.assign({}, viewState);
+
+        clearTimeout(viewStateChangeTimeout);
+
+        viewStateChangeTimeout = setTimeout(() => {
+          enforeLngLatBounds();
+          updateUrl();
+        }, 100);
+      }
+    }, currentViewState));
+
+    const FILTER_IDS = ['borough', 'year', 'numVehicles', 'timeOfDay', 'injuryStatus', 'injuryCheckboxes'];
+    let currentFilters = {};
+    initializeFilterInputs();
+
+    let data, filteredData;
+
+    d3.csv(dataUrl, row => {
+      return {
+        pos: [+row.lng, +row.lat],
+        year: +row.year,
+        borough: row.borough,
+        num_vehicles: +row.num_vehicles,
+        time_of_day: row.time_of_day,
+        motorists_injured: +row.motorists_injured,
+        motorists_killed: +row.motorists_killed,
+        cyclists_injured: +row.cyclists_injured,
+        cyclists_killed: +row.cyclists_killed,
+        pedestrians_injured: +row.pedestrians_injured,
+        pedestrians_killed: +row.pedestrians_killed,
+        total_injured: (+row.motorists_injured) + (+row.cyclists_injured) + (+row.pedestrians_injured),
+        total_killed: (+row.motorists_killed) + (+row.cyclists_killed) + (+row.pedestrians_killed)
+      };
+    }).then(rows => {
+      data = rows;
+
+      if (Object.keys(currentFilters).length > 0) filterData();
+
+      renderLayer();
+    }).catch(e => {
+      console.error(e);
+      alert('Something went wront, maybe try reloading the page');
+    });
+
+    function hexIntensityCalculator() {
+      let colorVariable = document.getElementById('colorVariable').selectedOptions[0].value;
+
+      if (colorVariable === 'collisions') {
+        return points => points.length;
+      } else {
+        return points => points.map(p => p[colorVariable]).reduce((a, b) => a + b, 0);
+      }
+    }
+
+    function renderLayer() {
+      let options = {
+        extruded: currentMode === '3d',
+        opacity: (currentMode === '3d' ? 0.4 : 0.3),
+        coverage: (currentMode === '3d' ? 0.9 : 1),
+        radius: Number(document.getElementById('radius').value)
+      };
+
+      document.getElementById('radius-value').innerHTML = options.radius;
+
+      if (mobile) {
+        options.onClick = updateTooltip;
+      } else {
+        options.onHover = updateTooltip;
+      }
+
+      let calculator = hexIntensityCalculator();
+
+      const hexagonLayer = new deck.HexagonLayer(Object.assign({
+        id: 'heatmap',
+        data: filteredData || data,
+        colorRange: COLOR_RANGE,
+        elevationRange: [0, 5000],
+        getPosition: d => d.pos,
+        getColorValue: calculator,
+        getElevationValue: calculator,
+        lightSettings: LIGHT_SETTINGS,
+        pickable: true,
+        autoHighlight: true
+      }, options));
+
+      document.querySelector('.collisions-total').innerHTML = `
+        ${numberWithCommas((filteredData || data).length)} total collisions
+      `;
+
+      deckgl.setProps({
+        layers: [hexagonLayer],
+        viewState: Object.assign({}, currentViewState)
+      });
+
+      updateUrl();
+      updateLegend(hexagonLayer.state.colorValueDomain);
+    }
+
+    function updateCurrentFilters() {
+      let filters = {injuryCheckboxes: []};
+
+      ['borough', 'year', 'numVehicles', 'timeOfDay', 'injuryStatus'].forEach(k => {
+        let val = document.getElementById(k).selectedOptions[0].value;
+        if (val) filters[k] = val;
+      });
+
+      if (['both', 'killed'].indexOf(filters.injuryStatus) > -1) {
+        document.querySelectorAll('.injury-checkboxes input:checked').forEach(e => {
+          filters.injuryCheckboxes.push(e.id);
+        });
+      }
+
+      if (filters.year) filters.year = Number(filters.year);
+      if (filters.numVehicles) filters.numVehicles = Number(filters.numVehicles);
+
+      currentFilters = filters;
+    }
+
+    function filterData() {
+      updateCurrentFilters();
+      updateUrl();
+
+      let borough = currentFilters.borough;
+      let year = currentFilters.year;
+      let numVehicles = currentFilters.numVehicles;
+      let timeOfDay = currentFilters.timeOfDay;
+      let injuryStatus = currentFilters.injuryStatus;
+
+      let injuryTypes = [];
+
+      if (['both', 'killed'].indexOf(injuryStatus) > -1) {
+        enableInjuryCheckboxes();
+
+        currentFilters.injuryCheckboxes.forEach(id => {
+          let category = id.split('-')[0];
+          injuryTypes.push(`${category}_killed`);
+          if (injuryStatus === 'both') injuryTypes.push(`${category}_injured`);
+        });
+
+        if (injuryTypes.length === 0) {
+          injuryTypes.push('total_killed');
+          if (injuryStatus === 'both') injuryTypes.push('total_injured');
+        }
+      } else {
+        disableInjuryCheckboxes();
+      }
+
+      if (injuryStatus === '' && borough === '' && year === 0 && numVehicles === 0 && timeOfDay === '') {
+        filteredData = undefined;
+      } else {
+        filteredData = data.filter(row => {
+          if (borough && row.borough !== borough) return false;
+
+          if (year && row.year !== year) return false;
+
+          if (numVehicles === 3 && row.num_vehicles < 3) {
+            return false;
+          } else if (numVehicles > 0 && numVehicles < 3 && row.num_vehicles != numVehicles) {
+            return false;
+          }
+
+          if (timeOfDay && row.time_of_day !== timeOfDay) return false;
+
+          if (injuryStatus === 'none' && row.total_injured + row.total_killed > 0) return false;
+
+          if (injuryTypes.length > 0 && !injuryTypes.some(key => row[key] > 0)) return false;
+
+          return true;
+        });
+      }
+
+      renderLayer();
+    }
+
+    function setMode() {
+      currentMode = document.querySelector('input[name="mode"]:checked').value;
+
+      if (currentMode === '3d') {
+        if (currentViewState.pitch === 0) {
+          currentViewState.pitch = current3dPitch;
+        }
+
+        deckgl.setProps({controller: {touchRotate: true}});
+      } else if (currentMode === '2d') {
+        currentViewState.pitch = 0;
+        currentViewState.bearing = 0;
+
+        deckgl.setProps({controller: {touchRotate: false}});
+      }
+
+      renderLayer();
+    }
+
+    let mobileTooltipTimeout;
+
+    function updateTooltip({x, y, object}) {
+      let tooltip = document.getElementById('tooltip');
+
+      if (object) {
+        let yearsHistogram = {},
+            motoristsInjured = 0,
+            motoristsKilled = 0,
+            cyclistsInjured = 0,
+            cyclistsKilled = 0,
+            pedestriansInjured = 0,
+            pedestriansKilled = 0;
+
+        object.points.forEach(point => {
+          yearsHistogram[point.year] = yearsHistogram[point.year] || 0;
+          yearsHistogram[point.year] += 1;
+
+          motoristsInjured += point.motorists_injured;
+          motoristsKilled += point.motorists_killed;
+          cyclistsInjured += point.cyclists_injured;
+          cyclistsKilled += point.cyclists_killed;
+          pedestriansInjured += point.pedestrians_injured;
+          pedestriansKilled += point.pedestrians_killed;
+        });
+
+        let totalInjured = motoristsInjured + cyclistsInjured + pedestriansInjured;
+        let totalKilled = motoristsKilled + cyclistsKilled + pedestriansKilled;
+
+        let histogramHtml = '';
+
+        if (!currentFilters.year) {
+          histogramHtml = `
+            <tr class="year-histogram">
+              <td>Year</td>
+              <td class="numeric">Collisions</td>
+            </tr>
+          `;
+
+          [2012, 2013, 2014, 2015, 2016, 2017, 2018].forEach(year => {
+            histogramHtml += `
+              <tr>
+                <td>${year}</td>
+                <td class="numeric">
+                  ${numberWithCommas(yearsHistogram[year] || 0)}
+                </td>
+              </tr>
+            `;
+          });
+        }
+
+        tooltip.innerHTML = `
+          <table>
+            <thead>
+              <tr>
+                <th>Collisions</th>
+                <th class="numeric">${numberWithCommas(object.points.length)}</th>
+                <th class="numeric"></th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Type</td>
+                <td class="numeric">Injured</td>
+                <td class="numeric">Killed</td>
+              </tr>
+              <tr>
+                <td>Motorists</td>
+                <td class="numeric">${numberWithCommas(motoristsInjured)}</td>
+                <td class="numeric">${numberWithCommas(motoristsKilled)}</td>
+              </tr>
+              <tr>
+                <td>Cyclists</td>
+                <td class="numeric">${numberWithCommas(cyclistsInjured)}</td>
+                <td class="numeric">${numberWithCommas(cyclistsKilled)}</td>
+              </tr>
+              <tr>
+                <td>Pedestrians</td>
+                <td class="numeric">${numberWithCommas(pedestriansInjured)}</td>
+                <td class="numeric">${numberWithCommas(pedestriansKilled)}</td>
+              </tr>
+              <tr class="total">
+                <td>Total</td>
+                <td class="numeric">${numberWithCommas(totalInjured)}</td>
+                <td class="numeric">${numberWithCommas(totalKilled)}</td>
+              </tr>
+
+              ${histogramHtml}
+            </tbody>
+          </table>
+        `;
+
+        let ttWidth = tooltip.clientWidth;
+        let ttHeight = tooltip.clientHeight;
+
+        let offsetX = Math.min(x, window.innerWidth - ttWidth - 20);
+        let offsetY = y + ttHeight > window.innerHeight - 50 ? y - ttHeight - 40 : y + 10;
+
+        tooltip.style.top = `${offsetY}px`;
+        tooltip.style.left = `${offsetX}px`;
+      } else {
+        tooltip.innerHTML = '';
+      }
+
+      if (mobile) {
+        clearTimeout(mobileTooltipTimeout);
+        mobileTooltipTimeout = setTimeout(emptyTooltip, 3000);
+      }
+    }
+
+    function numberWithCommas(num) {
+      return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    }
+
+    function hideControlPanel() {
+      document.getElementById('show-control-panel').classList.remove('hidden');
+      document.getElementById('control-panel').classList.add('hidden');
+    }
+
+    function showControlPanel() {
+      document.getElementById('show-control-panel').classList.add('hidden');
+      document.getElementById('control-panel').classList.remove('hidden');
+    }
+
+    function enableInjuryCheckboxes() {
+      document.querySelector('.injury-checkboxes').classList.remove('disabled');
+      document.querySelectorAll('.injury-checkboxes input').forEach(e => {
+        e.disabled = false;
+      });
+    }
+
+    function disableInjuryCheckboxes() {
+      document.querySelector('.injury-checkboxes').classList.add('disabled');
+      document.querySelectorAll('.injury-checkboxes input').forEach(e => {
+        e.disabled = true;
+        e.checked = false;
+      });
+    }
+
+    function injuryTooltip(div) {
+      if (!div.classList.contains('disabled')) return;
+
+      const tooltip = document.getElementById('tooltip');
+
+      tooltip.style.top = `${event.clientY}px`;
+      tooltip.style.left = `${event.clientX}px`;
+      tooltip.innerHTML = 'Filter by injury status to enable';
+    }
+
+    function emptyTooltip() {
+      document.getElementById('tooltip').innerHTML = '';
+    }
+
+    function buildLegend() {
+      let container = document.querySelector('.legend-colors');
+
+      COLOR_RANGE.forEach(rgb => {
+        let div = document.createElement('div');
+        div.setAttribute('class', 'legend-bar');
+        div.setAttribute('style', `background-color: rgb(${rgb.join(',')})`);
+        container.appendChild(div);
+      });
+    }
+
+    function updateLegend(domain) {
+      let label = {
+        collisions: 'Collisions',
+        total_injured: 'People injured',
+        total_killed: 'People killed',
+        motorists_injured: 'Motorists injured',
+        motorists_killed: 'Motorists killed',
+        cyclists_injured: 'Cyclists injured',
+        cyclists_killed: 'Cyclists killed',
+        pedestrians_injured: 'Pedestrians injured',
+        pedestrians_killed: 'Pedestrians killed'
+      }[document.getElementById('colorVariable').selectedOptions[0].value];
+
+      document.getElementById('legend').classList.remove('hidden');
+      document.querySelector('.legend-min').innerHTML = numberWithCommas(domain[0]);
+      document.querySelector('.legend-max').innerHTML = numberWithCommas(domain[1]);
+      document.querySelector('.legend-label').innerHTML = label;
+    }
+
+    function mobileDevice() {
+      return /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+    }
+
+    function initializeFilterInputs() {
+      FILTER_IDS.forEach(k => {
+        if (!urlParams.get(k)) return;
+
+        if (k === 'injuryCheckboxes') {
+          let ids = urlParams.get(k).split(',');
+          ids.forEach(i => document.getElementById(i).checked = true);
+        } else {
+          document.querySelector(`#${k} option[value="${urlParams.get(k)}"]`).selected = true;
+        }
+
+        updateCurrentFilters();
+      });
+    }
+
+    function initializeLayerInputs() {
+      if (urlParams.has('radius')) {
+        document.getElementById('radius').value = urlParams.get('radius');
+      }
+
+      if (urlParams.has('colorVariable')) {
+        document.querySelector(`#colorVariable option[value="${urlParams.get('colorVariable')}"]`).selected = true;
+      }
+
+      if (urlParams.has('mode')) {
+        document.getElementById(`mode-${urlParams.get('mode')}`).checked = true;
+      }
+    };
+
+    function updateUrl() {
+      urlParams.set('latitude', currentViewState.latitude.toFixed(3));
+      urlParams.set('longitude', currentViewState.longitude.toFixed(3));
+      urlParams.set('zoom', currentViewState.zoom.toFixed(1));
+      urlParams.set('pitch', currentViewState.pitch.toFixed(0));
+      urlParams.set('bearing', currentViewState.bearing.toFixed(0));
+
+      Object.keys(viewStateDefaults).forEach(k => {
+        if (viewStateDefaults[k] === Number(urlParams.get(k))) {
+          urlParams.delete(k);
+        }
+      });
+
+      FILTER_IDS.forEach(k => {
+        if (currentFilters[k] && k !== 'injuryCheckboxes') {
+          urlParams.set(k, currentFilters[k]);
+        } else if (currentFilters[k] && k === 'injuryCheckboxes' && currentFilters[k].length > 0) {
+          urlParams.set(k, currentFilters[k]);
+        } else {
+          urlParams.delete(k);
+        }
+      });
+
+      let radiusInput = document.getElementById('radius');
+      if (Number(radiusInput.value) === 300) {
+        urlParams.delete('radius');
+      } else {
+        urlParams.set('radius', radiusInput.value);
+      }
+
+      let colorVar = document.getElementById('colorVariable').selectedOptions[0].value;
+      if (colorVar === 'collisions') {
+        urlParams.delete('colorVariable');
+      } else {
+        urlParams.set('colorVariable', colorVar);
+      }
+
+      if (currentMode === '2d') {
+        urlParams.delete('mode');
+      } else {
+        urlParams.set('mode', currentMode);
+      }
+
+      let query = urlParams.toString() ? `?${urlParams}` : '';
+      window.history.replaceState({}, '', decodeURIComponent(`${location.pathname}${query}`));
+    }
+
+    function enforeLngLatBounds() {
+      let lngLatValid = (
+        currentViewState.longitude >= LNG_LAT_BOUNDS.longitude[0] &&
+        currentViewState.longitude <= LNG_LAT_BOUNDS.longitude[1] &&
+        currentViewState.latitude >= LNG_LAT_BOUNDS.latitude[0] &&
+        currentViewState.latitude <= LNG_LAT_BOUNDS.latitude[1]
+      );
+
+      if (lngLatValid) return;
+
+      currentViewState.longitude = Math.min(
+        Math.max(currentViewState.longitude, LNG_LAT_BOUNDS.longitude[0]),
+        LNG_LAT_BOUNDS.longitude[1]
+      );
+
+      currentViewState.latitude = Math.min(
+        Math.max(currentViewState.latitude, LNG_LAT_BOUNDS.latitude[0]),
+        LNG_LAT_BOUNDS.latitude[1]
+      );
+
+      renderLayer();
+    }
+  </script>
+</html>

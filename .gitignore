@@ -1,0 +1,8 @@
+raw_data/*
+analysis/*.csv
+analysis/*.csv.gz
+analysis/graphs/*.png
+analysis/graphs/boroughs/*.png
+analysis/graphs/zones/*.png
+.Rapp.history
+.DS_Store
