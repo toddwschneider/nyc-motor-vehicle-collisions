@@ -1,6 +1,6 @@
 # NYC Motor Vehicle Collisions
 
-Code in support of this post: [Mapping Motor Vehicle Collisions in New York City](http://toddwschneider.com/posts/nyc-motor-vehicle-collisions-map/)
+Code in support of this post: [Mapping Motor Vehicle Collisions in New York City](https://toddwschneider.com/posts/nyc-motor-vehicle-collisions-map/)
 
 Raw data comes from the NYPD: https://data.cityofnewyork.us/Public-Safety/NYPD-Motor-Vehicle-Collisions/h9gi-nx95
 
